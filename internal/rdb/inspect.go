@@ -11,14 +11,20 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/spf13/cast"
+
 	"github.com/hibiken/asynq/internal/base"
 	"github.com/hibiken/asynq/internal/errors"
-	"github.com/spf13/cast"
 )
 
 // AllQueues returns a list of all queue names.
 func (r *RDB) AllQueues() ([]string, error) {
-	return r.client.SMembers(context.Background(), base.AllQueues).Result()
+	return r.AllQueuesContext(context.Background())
+}
+
+// AllQueuesContext returns a list of all queue names.
+func (r *RDB) AllQueuesContext(ctx context.Context) ([]string, error) {
+	return r.client.SMembers(ctx, base.AllQueues).Result()
 }
 
 // Stats represents a state of queues at a certain time.
@@ -386,7 +392,13 @@ func reverse(x []*base.TaskInfo) {
 // checkQueueExists verifies whether the queue exists.
 // It returns QueueNotFoundError if queue doesn't exist.
 func (r *RDB) checkQueueExists(qname string) error {
-	exists, err := r.queueExists(qname)
+	return r.checkQueueExistsContext(context.Background(), qname)
+}
+
+// checkQueueExistsContext verifies whether the queue exists.
+// It returns QueueNotFoundError if queue doesn't exist.
+func (r *RDB) checkQueueExistsContext(ctx context.Context, qname string) error {
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return errors.E(errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
@@ -510,15 +522,20 @@ func (p Pagination) stop() int64 {
 
 // ListPending returns pending tasks that are ready to be processed.
 func (r *RDB) ListPending(qname string, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.ListPendingContext(context.Background(), qname, pgn)
+}
+
+// ListPendingContext returns pending tasks that are ready to be processed.
+func (r *RDB) ListPendingContext(ctx context.Context, qname string, pgn Pagination) ([]*base.TaskInfo, error) {
 	var op errors.Op = "rdb.ListPending"
-	exists, err := r.queueExists(qname)
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return nil, errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
 	if !exists {
 		return nil, errors.E(op, errors.NotFound, &errors.QueueNotFoundError{Queue: qname})
 	}
-	res, err := r.listMessages(qname, base.TaskStatePending, pgn)
+	res, err := r.listMessages(ctx, qname, base.TaskStatePending, pgn)
 	if err != nil {
 		return nil, errors.E(op, errors.CanonicalCode(err), err)
 	}
@@ -527,15 +544,20 @@ func (r *RDB) ListPending(qname string, pgn Pagination) ([]*base.TaskInfo, error
 
 // ListActive returns all tasks that are currently being processed for the given queue.
 func (r *RDB) ListActive(qname string, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.ListActiveContext(context.Background(), qname, pgn)
+}
+
+// ListActiveContext returns all tasks that are currently being processed for the given queue.
+func (r *RDB) ListActiveContext(ctx context.Context, qname string, pgn Pagination) ([]*base.TaskInfo, error) {
 	var op errors.Op = "rdb.ListActive"
-	exists, err := r.queueExists(qname)
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return nil, errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
 	if !exists {
 		return nil, errors.E(op, errors.NotFound, &errors.QueueNotFoundError{Queue: qname})
 	}
-	res, err := r.listMessages(qname, base.TaskStateActive, pgn)
+	res, err := r.listMessages(ctx, qname, base.TaskStateActive, pgn)
 	if err != nil {
 		return nil, errors.E(op, errors.CanonicalCode(err), err)
 	}
@@ -559,7 +581,7 @@ return data
 `)
 
 // listMessages returns a list of TaskInfo in Redis list with the given key.
-func (r *RDB) listMessages(qname string, state base.TaskState, pgn Pagination) ([]*base.TaskInfo, error) {
+func (r *RDB) listMessages(ctx context.Context, qname string, state base.TaskState, pgn Pagination) ([]*base.TaskInfo, error) {
 	var key string
 	switch state {
 	case base.TaskStateActive:
@@ -573,7 +595,7 @@ func (r *RDB) listMessages(qname string, state base.TaskState, pgn Pagination) (
 	// correct range and reverse the list to get the tasks with pagination.
 	stop := -pgn.start() - 1
 	start := -pgn.stop() - 1
-	res, err := listMessagesCmd.Run(context.Background(), r.client,
+	res, err := listMessagesCmd.Run(ctx, r.client,
 		[]string{key}, start, stop, base.TaskKeyPrefix(qname)).Result()
 	if err != nil {
 		return nil, errors.E(errors.Unknown, err)
@@ -611,15 +633,21 @@ func (r *RDB) listMessages(qname string, state base.TaskState, pgn Pagination) (
 // ListScheduled returns all tasks from the given queue that are scheduled
 // to be processed in the future.
 func (r *RDB) ListScheduled(qname string, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.ListScheduledContext(context.Background(), qname, pgn)
+}
+
+// ListScheduledContext returns all tasks from the given queue that are scheduled
+// to be processed in the future.
+func (r *RDB) ListScheduledContext(ctx context.Context, qname string, pgn Pagination) ([]*base.TaskInfo, error) {
 	var op errors.Op = "rdb.ListScheduled"
-	exists, err := r.queueExists(qname)
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return nil, errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
 	if !exists {
 		return nil, errors.E(op, errors.NotFound, &errors.QueueNotFoundError{Queue: qname})
 	}
-	res, err := r.listZSetEntries(qname, base.TaskStateScheduled, pgn)
+	res, err := r.listZSetEntriesContext(ctx, qname, base.TaskStateScheduled, pgn)
 	if err != nil {
 		return nil, errors.E(op, errors.CanonicalCode(err), err)
 	}
@@ -627,17 +655,23 @@ func (r *RDB) ListScheduled(qname string, pgn Pagination) ([]*base.TaskInfo, err
 }
 
 // ListRetry returns all tasks from the given queue that have failed before
-// and willl be retried in the future.
+// and will be retried in the future.
 func (r *RDB) ListRetry(qname string, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.ListRetryContext(context.Background(), qname, pgn)
+}
+
+// ListRetryContext returns all tasks from the given queue that have failed before
+// and will be retried in the future.
+func (r *RDB) ListRetryContext(ctx context.Context, qname string, pgn Pagination) ([]*base.TaskInfo, error) {
 	var op errors.Op = "rdb.ListRetry"
-	exists, err := r.queueExists(qname)
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return nil, errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
 	if !exists {
 		return nil, errors.E(op, errors.NotFound, &errors.QueueNotFoundError{Queue: qname})
 	}
-	res, err := r.listZSetEntries(qname, base.TaskStateRetry, pgn)
+	res, err := r.listZSetEntriesContext(ctx, qname, base.TaskStateRetry, pgn)
 	if err != nil {
 		return nil, errors.E(op, errors.CanonicalCode(err), err)
 	}
@@ -646,15 +680,20 @@ func (r *RDB) ListRetry(qname string, pgn Pagination) ([]*base.TaskInfo, error) 
 
 // ListArchived returns all tasks from the given queue that have exhausted its retry limit.
 func (r *RDB) ListArchived(qname string, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.ListArchivedContext(context.Background(), qname, pgn)
+}
+
+// ListArchivedContext returns all tasks from the given queue that have exhausted its retry limit.
+func (r *RDB) ListArchivedContext(ctx context.Context, qname string, pgn Pagination) ([]*base.TaskInfo, error) {
 	var op errors.Op = "rdb.ListArchived"
-	exists, err := r.queueExists(qname)
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return nil, errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
 	if !exists {
 		return nil, errors.E(op, errors.NotFound, &errors.QueueNotFoundError{Queue: qname})
 	}
-	zs, err := r.listZSetEntries(qname, base.TaskStateArchived, pgn)
+	zs, err := r.listZSetEntriesContext(ctx, qname, base.TaskStateArchived, pgn)
 	if err != nil {
 		return nil, errors.E(op, errors.CanonicalCode(err), err)
 	}
@@ -663,15 +702,20 @@ func (r *RDB) ListArchived(qname string, pgn Pagination) ([]*base.TaskInfo, erro
 
 // ListCompleted returns all tasks from the given queue that have completed successfully.
 func (r *RDB) ListCompleted(qname string, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.ListCompletedContext(context.Background(), qname, pgn)
+}
+
+// ListCompletedContext returns all tasks from the given queue that have completed successfully.
+func (r *RDB) ListCompletedContext(ctx context.Context, qname string, pgn Pagination) ([]*base.TaskInfo, error) {
 	var op errors.Op = "rdb.ListCompleted"
-	exists, err := r.queueExists(qname)
+	exists, err := r.queueExistsContext(ctx, qname)
 	if err != nil {
 		return nil, errors.E(op, errors.Unknown, &errors.RedisCommandError{Command: "sismember", Err: err})
 	}
 	if !exists {
 		return nil, errors.E(op, errors.NotFound, &errors.QueueNotFoundError{Queue: qname})
 	}
-	zs, err := r.listZSetEntries(qname, base.TaskStateCompleted, pgn)
+	zs, err := r.listZSetEntriesContext(ctx, qname, base.TaskStateCompleted, pgn)
 	if err != nil {
 		return nil, errors.E(op, errors.CanonicalCode(err), err)
 	}
@@ -680,7 +724,12 @@ func (r *RDB) ListCompleted(qname string, pgn Pagination) ([]*base.TaskInfo, err
 
 // Reports whether a queue with the given name exists.
 func (r *RDB) queueExists(qname string) (bool, error) {
-	return r.client.SIsMember(context.Background(), base.AllQueues, qname).Result()
+	return r.queueExistsContext(context.Background(), qname)
+}
+
+// Reports whether a queue with the given name exists.
+func (r *RDB) queueExistsContext(ctx context.Context, qname string) (bool, error) {
+	return r.client.SIsMember(ctx, base.AllQueues, qname).Result()
 }
 
 // KEYS[1] -> key for ids set (e.g. asynq:{<qname>}:scheduled)
@@ -708,6 +757,12 @@ return data
 // listZSetEntries returns a list of message and score pairs in Redis sorted-set
 // with the given key.
 func (r *RDB) listZSetEntries(qname string, state base.TaskState, pgn Pagination) ([]*base.TaskInfo, error) {
+	return r.listZSetEntriesContext(context.Background(), qname, state, pgn)
+}
+
+// listZSetEntriesContext returns a list of message and score pairs in Redis sorted-set
+// with the given key.
+func (r *RDB) listZSetEntriesContext(ctx context.Context, qname string, state base.TaskState, pgn Pagination) ([]*base.TaskInfo, error) {
 	var key string
 	switch state {
 	case base.TaskStateScheduled:
@@ -721,7 +776,7 @@ func (r *RDB) listZSetEntries(qname string, state base.TaskState, pgn Pagination
 	default:
 		panic(fmt.Sprintf("unsupported task state: %v", state))
 	}
-	res, err := listZSetEntriesCmd.Run(context.Background(), r.client, []string{key},
+	res, err := listZSetEntriesCmd.Run(ctx, r.client, []string{key},
 		pgn.start(), pgn.stop(), base.TaskKeyPrefix(qname)).Result()
 	if err != nil {
 		return nil, errors.E(errors.Unknown, err)
@@ -1208,8 +1263,18 @@ return redis.call("DEL", KEYS[1])
 // If a task with the given id doesn't exist in the queue, it returns TaskNotFoundError
 // If a task is in active state it returns non-nil error with Code FailedPrecondition.
 func (r *RDB) DeleteTask(qname, id string) error {
+	return r.DeleteTaskContext(context.Background(), qname, id)
+}
+
+// DeleteTaskContext finds a task that matches the id from the given queue and deletes it.
+// It returns nil if it successfully archived the task.
+//
+// If a queue with the given name doesn't exist, it returns QueueNotFoundError.
+// If a task with the given id doesn't exist in the queue, it returns TaskNotFoundError
+// If a task is in active state it returns non-nil error with Code FailedPrecondition.
+func (r *RDB) DeleteTaskContext(ctx context.Context, qname, id string) error {
 	var op errors.Op = "rdb.DeleteTask"
-	if err := r.checkQueueExists(qname); err != nil {
+	if err := r.checkQueueExistsContext(ctx, qname); err != nil {
 		return errors.E(op, errors.CanonicalCode(err), err)
 	}
 	keys := []string{
@@ -1219,7 +1284,7 @@ func (r *RDB) DeleteTask(qname, id string) error {
 		id,
 		base.QueueKeyPrefix(qname),
 	}
-	res, err := deleteTaskCmd.Run(context.Background(), r.client, keys, argv...).Result()
+	res, err := deleteTaskCmd.Run(ctx, r.client, keys, argv...).Result()
 	if err != nil {
 		return errors.E(op, errors.Unknown, err)
 	}
@@ -1617,10 +1682,10 @@ local keys = redis.call("ZRANGEBYSCORE", KEYS[1], now, "+inf")
 redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now-1)
 return keys`)
 
-// ListSchedulerEntries returns the list of scheduler entries.
-func (r *RDB) ListSchedulerEntries() ([]*base.SchedulerEntry, error) {
+// ListSchedulerEntriesContext returns the list of scheduler entries.
+func (r *RDB) ListSchedulerEntriesContext(ctx context.Context) ([]*base.SchedulerEntry, error) {
 	now := r.clock.Now()
-	res, err := listSchedulerKeysCmd.Run(context.Background(), r.client, []string{base.AllSchedulers}, now.Unix()).Result()
+	res, err := listSchedulerKeysCmd.Run(ctx, r.client, []string{base.AllSchedulers}, now.Unix()).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -1630,7 +1695,7 @@ func (r *RDB) ListSchedulerEntries() ([]*base.SchedulerEntry, error) {
 	}
 	var entries []*base.SchedulerEntry
 	for _, key := range keys {
-		data, err := r.client.LRange(context.Background(), key, 0, -1).Result()
+		data, err := r.client.LRange(ctx, key, 0, -1).Result()
 		if err != nil {
 			continue // skip bad data
 		}
@@ -1643,6 +1708,11 @@ func (r *RDB) ListSchedulerEntries() ([]*base.SchedulerEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+// ListSchedulerEntries returns the list of scheduler entries.
+func (r *RDB) ListSchedulerEntries() ([]*base.SchedulerEntry, error) {
+	return r.ListSchedulerEntriesContext(context.Background())
 }
 
 // ListSchedulerEnqueueEvents returns the list of scheduler enqueue events.

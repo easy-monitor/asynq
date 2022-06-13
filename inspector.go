@@ -5,6 +5,7 @@
 package asynq
 
 import (
+	"context"
 	"fmt"
 
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+
 	"github.com/hibiken/asynq/internal/base"
 	"github.com/hibiken/asynq/internal/errors"
 	"github.com/hibiken/asynq/internal/rdb"
@@ -41,7 +43,12 @@ func (i *Inspector) Close() error {
 
 // Queues returns a list of all queue names.
 func (i *Inspector) Queues() ([]string, error) {
-	return i.rdb.AllQueues()
+	return i.QueuesContext(context.Background())
+}
+
+// QueuesContext returns a list of all queue names.
+func (i *Inspector) QueuesContext(ctx context.Context) ([]string, error) {
+	return i.rdb.AllQueuesContext(ctx)
 }
 
 // QueueInfo represents a state of queues at a certain time.
@@ -269,6 +276,13 @@ func Page(n int) ListOption {
 //
 // By default, it retrieves the first 30 tasks.
 func (i *Inspector) ListPendingTasks(qname string, opts ...ListOption) ([]*TaskInfo, error) {
+	return i.ListPendingTasksContext(context.Background(), qname, opts...)
+}
+
+// ListPendingTasksContext retrieves pending tasks from the specified queue.
+//
+// By default, it retrieves the first 30 tasks.
+func (i *Inspector) ListPendingTasksContext(ctx context.Context, qname string, opts ...ListOption) ([]*TaskInfo, error) {
 	if err := base.ValidateQueueName(qname); err != nil {
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
@@ -297,19 +311,26 @@ func (i *Inspector) ListPendingTasks(qname string, opts ...ListOption) ([]*TaskI
 //
 // By default, it retrieves the first 30 tasks.
 func (i *Inspector) ListActiveTasks(qname string, opts ...ListOption) ([]*TaskInfo, error) {
+	return i.ListActiveTasksContext(context.Background(), qname, opts...)
+}
+
+// ListActiveTasksContext retrieves active tasks from the specified queue.
+//
+// By default, it retrieves the first 30 tasks.
+func (i *Inspector) ListActiveTasksContext(ctx context.Context, qname string, opts ...ListOption) ([]*TaskInfo, error) {
 	if err := base.ValidateQueueName(qname); err != nil {
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
 	opt := composeListOptions(opts...)
 	pgn := rdb.Pagination{Size: opt.pageSize, Page: opt.pageNum - 1}
-	infos, err := i.rdb.ListActive(qname, pgn)
+	infos, err := i.rdb.ListActiveContext(ctx, qname, pgn)
 	switch {
 	case errors.IsQueueNotFound(err):
 		return nil, fmt.Errorf("asynq: %w", ErrQueueNotFound)
 	case err != nil:
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
-	expired, err := i.rdb.ListLeaseExpired(time.Now(), qname)
+	expired, err := i.rdb.ListLeaseExpiredContext(ctx, time.Now(), qname)
 	if err != nil {
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
@@ -338,12 +359,20 @@ func (i *Inspector) ListActiveTasks(qname string, opts ...ListOption) ([]*TaskIn
 //
 // By default, it retrieves the first 30 tasks.
 func (i *Inspector) ListScheduledTasks(qname string, opts ...ListOption) ([]*TaskInfo, error) {
+	return i.ListScheduledTasksContext(context.Background(), qname, opts...)
+}
+
+// ListScheduledTasksContext retrieves scheduled tasks from the specified queue.
+// Tasks are sorted by NextProcessAt in ascending order.
+//
+// By default, it retrieves the first 30 tasks.
+func (i *Inspector) ListScheduledTasksContext(ctx context.Context, qname string, opts ...ListOption) ([]*TaskInfo, error) {
 	if err := base.ValidateQueueName(qname); err != nil {
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
 	opt := composeListOptions(opts...)
 	pgn := rdb.Pagination{Size: opt.pageSize, Page: opt.pageNum - 1}
-	infos, err := i.rdb.ListScheduled(qname, pgn)
+	infos, err := i.rdb.ListScheduledContext(ctx, qname, pgn)
 	switch {
 	case errors.IsQueueNotFound(err):
 		return nil, fmt.Errorf("asynq: %w", ErrQueueNotFound)
@@ -367,12 +396,20 @@ func (i *Inspector) ListScheduledTasks(qname string, opts ...ListOption) ([]*Tas
 //
 // By default, it retrieves the first 30 tasks.
 func (i *Inspector) ListRetryTasks(qname string, opts ...ListOption) ([]*TaskInfo, error) {
+	return i.ListRetryTasksContext(context.Background(), qname, opts...)
+}
+
+// ListRetryTasksContext retrieves retry tasks from the specified queue.
+// Tasks are sorted by NextProcessAt in ascending order.
+//
+// By default, it retrieves the first 30 tasks.
+func (i *Inspector) ListRetryTasksContext(ctx context.Context, qname string, opts ...ListOption) ([]*TaskInfo, error) {
 	if err := base.ValidateQueueName(qname); err != nil {
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
 	opt := composeListOptions(opts...)
 	pgn := rdb.Pagination{Size: opt.pageSize, Page: opt.pageNum - 1}
-	infos, err := i.rdb.ListRetry(qname, pgn)
+	infos, err := i.rdb.ListRetryContext(ctx, qname, pgn)
 	switch {
 	case errors.IsQueueNotFound(err):
 		return nil, fmt.Errorf("asynq: %w", ErrQueueNotFound)
@@ -396,12 +433,20 @@ func (i *Inspector) ListRetryTasks(qname string, opts ...ListOption) ([]*TaskInf
 //
 // By default, it retrieves the first 30 tasks.
 func (i *Inspector) ListArchivedTasks(qname string, opts ...ListOption) ([]*TaskInfo, error) {
+	return i.ListArchivedTasksContext(context.Background(), qname, opts...)
+}
+
+// ListArchivedTasksContext retrieves archived tasks from the specified queue.
+// Tasks are sorted by LastFailedAt in descending order.
+//
+// By default, it retrieves the first 30 tasks.
+func (i *Inspector) ListArchivedTasksContext(ctx context.Context, qname string, opts ...ListOption) ([]*TaskInfo, error) {
 	if err := base.ValidateQueueName(qname); err != nil {
 		return nil, fmt.Errorf("asynq: %v", err)
 	}
 	opt := composeListOptions(opts...)
 	pgn := rdb.Pagination{Size: opt.pageSize, Page: opt.pageNum - 1}
-	infos, err := i.rdb.ListArchived(qname, pgn)
+	infos, err := i.rdb.ListArchivedContext(ctx, qname, pgn)
 	switch {
 	case errors.IsQueueNotFound(err):
 		return nil, fmt.Errorf("asynq: %w", ErrQueueNotFound)
@@ -507,10 +552,21 @@ func (i *Inspector) DeleteAllCompletedTasks(qname string) (int, error) {
 // If a task with the given id doesn't exist in the queue, it returns an error wrapping ErrTaskNotFound.
 // If the task is in active state, it returns a non-nil error.
 func (i *Inspector) DeleteTask(qname, id string) error {
+	return i.DeleteTaskContext(context.Background(), qname, id)
+}
+
+// DeleteTaskContext deletes a task with the given id from the given queue.
+// The task needs to be in pending, scheduled, retry, or archived state,
+// otherwise DeleteTask will return an error.
+//
+// If a queue with the given name doesn't exist, it returns an error wrapping ErrQueueNotFound.
+// If a task with the given id doesn't exist in the queue, it returns an error wrapping ErrTaskNotFound.
+// If the task is in active state, it returns a non-nil error.
+func (i *Inspector) DeleteTaskContext(ctx context.Context, qname, id string) error {
 	if err := base.ValidateQueueName(qname); err != nil {
 		return fmt.Errorf("asynq: %v", err)
 	}
-	err := i.rdb.DeleteTask(qname, id)
+	err := i.rdb.DeleteTaskContext(ctx, qname, id)
 	switch {
 	case errors.IsQueueNotFound(err):
 		return fmt.Errorf("asynq: %w", ErrQueueNotFound)
@@ -520,7 +576,6 @@ func (i *Inspector) DeleteTask(qname, id string) error {
 		return fmt.Errorf("asynq: %v", err)
 	}
 	return nil
-
 }
 
 // RunAllScheduledTasks transition all scheduled tasks to pending state from the given queue,
@@ -795,8 +850,14 @@ type SchedulerEntry struct {
 // SchedulerEntries returns a list of all entries registered with
 // currently running schedulers.
 func (i *Inspector) SchedulerEntries() ([]*SchedulerEntry, error) {
+	return i.SchedulerEntriesContext(context.Background())
+}
+
+// SchedulerEntriesContext returns a list of all entries registered with
+// currently running schedulers.
+func (i *Inspector) SchedulerEntriesContext(ctx context.Context) ([]*SchedulerEntry, error) {
 	var entries []*SchedulerEntry
-	res, err := i.rdb.ListSchedulerEntries()
+	res, err := i.rdb.ListSchedulerEntriesContext(ctx)
 	if err != nil {
 		return nil, err
 	}
