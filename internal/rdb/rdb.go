@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/spf13/cast"
+
 	"github.com/hibiken/asynq/internal/base"
 	"github.com/hibiken/asynq/internal/errors"
 	"github.com/hibiken/asynq/internal/timeutil"
-	"github.com/spf13/cast"
 )
 
 const statsTTL = 90 * 24 * time.Hour // 90 days
@@ -908,10 +909,15 @@ return res
 
 // ListLeaseExpired returns a list of task messages with an expired lease from the given queues.
 func (r *RDB) ListLeaseExpired(cutoff time.Time, qnames ...string) ([]*base.TaskMessage, error) {
+	return r.ListLeaseExpiredContext(context.Background(), cutoff, qnames...)
+}
+
+// ListLeaseExpiredContext returns a list of task messages with an expired lease from the given queues.
+func (r *RDB) ListLeaseExpiredContext(ctx context.Context, cutoff time.Time, qnames ...string) ([]*base.TaskMessage, error) {
 	var op errors.Op = "rdb.ListLeaseExpired"
 	var msgs []*base.TaskMessage
 	for _, qname := range qnames {
-		res, err := listLeaseExpiredCmd.Run(context.Background(), r.client,
+		res, err := listLeaseExpiredCmd.Run(ctx, r.client,
 			[]string{base.LeaseKey(qname)},
 			cutoff.Unix(), base.TaskKeyPrefix(qname)).Result()
 		if err != nil {
