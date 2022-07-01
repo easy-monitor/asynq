@@ -1,3 +1,4 @@
+//go:build linux || bsd || darwin
 // +build linux bsd darwin
 
 package asynq
@@ -19,6 +20,8 @@ func (srv *Server) waitForSignals() {
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, unix.SIGTERM, unix.SIGINT, unix.SIGTSTP)
+	defer signal.Stop(sigs)
+
 	for {
 		sig := <-sigs
 		if sig == unix.SIGTSTP {
@@ -33,5 +36,6 @@ func (s *Scheduler) waitForSignals() {
 	s.logger.Info("Send signal TERM or INT to stop the scheduler")
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, unix.SIGTERM, unix.SIGINT)
+	defer signal.Stop(sigs)
 	<-sigs
 }

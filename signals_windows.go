@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 package asynq
@@ -18,6 +19,7 @@ func (srv *Server) waitForSignals() {
 	srv.logger.Info("Send signal TERM or INT to terminate the process")
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, windows.SIGTERM, windows.SIGINT)
+	defer signal.Stop(sigs)
 	<-sigs
 }
 
@@ -25,5 +27,6 @@ func (s *Scheduler) waitForSignals() {
 	s.logger.Info("Send signal TERM or INT to stop the scheduler")
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, windows.SIGTERM, windows.SIGINT)
+	defer signal.Stop(sigs)
 	<-sigs
 }
